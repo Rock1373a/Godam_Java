@@ -64,9 +64,10 @@ function createLoginStyles(c: ThemeDefinition) {
 export default function LoginScreen({ navigation }: Props) {
   const { palette } = useTheme();
   const styles = useMemo(() => createLoginStyles(palette), [palette]);
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const canSubmit = !loading && username.trim().length > 0 && password.length > 0;
 
   const submit = async () => {
     setLoading(true);
@@ -92,7 +93,7 @@ export default function LoginScreen({ navigation }: Props) {
   return (
     <View style={styles.wrap}>
       <Image source={require('../../assets/icon.png')} style={styles.brand} resizeMode="contain" accessibilityLabel="GoDaam" />
-      <Text style={styles.sub}>Warehouse — sign in</Text>
+      <Text style={styles.sub}>Warehouse operations — sign in with the credentials your administrator provided.</Text>
       <TextInput
         style={styles.input}
         autoCapitalize="none"
@@ -109,7 +110,7 @@ export default function LoginScreen({ navigation }: Props) {
         value={password}
         onChangeText={setPassword}
       />
-      <Pressable style={styles.btn} onPress={submit} disabled={loading}>
+      <Pressable style={styles.btn} onPress={submit} disabled={!canSubmit}>
         <Text style={styles.btnText}>{loading ? 'Signing in…' : 'Sign in'}</Text>
       </Pressable>
       <Pressable style={styles.linkBtn} onPress={() => navigation.navigate('ApiConfiguration')} disabled={loading}>

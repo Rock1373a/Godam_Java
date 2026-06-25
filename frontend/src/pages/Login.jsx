@@ -194,10 +194,11 @@ const techIcons = [
 export default function Login({ onLoggedIn }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const canSubmit = !loading && username.trim().length > 0 && password.length > 0;
 
   const reduceMotion = usePrefersReducedMotion();
   const rootRef = useRef(null);
@@ -300,6 +301,7 @@ export default function Login({ onLoggedIn }) {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     autoComplete="username"
+                    placeholder="Enter your username"
                     disabled={loading}
                   />
                 </div>
@@ -315,6 +317,7 @@ export default function Login({ onLoggedIn }) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="current-password"
+                    placeholder="Enter your password"
                     disabled={loading}
                   />
                 </div>
@@ -331,7 +334,7 @@ export default function Login({ onLoggedIn }) {
                 <button
                   type="submit"
                   className="godam-login-submit flex w-full items-center justify-center gap-2"
-                  disabled={loading}
+                  disabled={!canSubmit}
                 >
                   {loading ? (
                     <>
@@ -344,7 +347,7 @@ export default function Login({ onLoggedIn }) {
                 </button>
 
                 <p className="text-center text-[10px] leading-relaxed text-slate-500">
-                  Default admin via backend env{' '}
+                  Accounts are created by your administrator. Default admin is set via backend env{' '}
                   <span className="font-mono text-slate-600">ADMIN_USERNAME</span> /{' '}
                   <span className="font-mono text-slate-600">ADMIN_PASSWORD</span>
                 </p>

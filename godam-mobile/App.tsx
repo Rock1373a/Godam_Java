@@ -87,7 +87,7 @@ function AppNavigator() {
         <AppErrorBoundary>
           <NavigationContainer theme={navigationTheme}>
             <Stack.Navigator initialRouteName={boot.initial} screenOptions={headerScreenOptions}>
-              <Stack.Screen name="ApiConfiguration" component={ApiConfigurationScreen} options={{ title: 'Configuration' }} />
+              <Stack.Screen name="ApiConfiguration" component={ApiConfigurationScreen} options={{ title: 'Get Started' }} />
               <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'GoDaam Login' }} />
               <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'GoDaam' }} />
               <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />

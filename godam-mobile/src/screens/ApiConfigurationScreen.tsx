@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -33,7 +34,8 @@ function createApiConfigStyles(c: ThemeDefinition) {
   return StyleSheet.create({
     flex: { flex: 1, backgroundColor: c.background },
     scroll: { padding: 24, paddingTop: 48 },
-    h: { fontSize: 22, fontWeight: '800', color: c.text },
+    brand: { width: 150, height: 90, alignSelf: 'center', marginBottom: 12 },
+    h: { fontSize: 24, fontWeight: '800', color: c.text, textAlign: 'center' },
     sub: { marginTop: 10, marginBottom: 14, fontSize: 14, color: c.textMuted, lineHeight: 20 },
     mono: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 13 },
     label: { fontSize: 13, fontWeight: '700', color: c.textSecondary, marginBottom: 6 },
@@ -139,11 +141,17 @@ export default function ApiConfigurationScreen({ navigation }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.h}>Configuration</Text>
+        <Image source={require('../../assets/icon.png')} style={styles.brand} resizeMode="contain" accessibilityLabel="GoDaam" />
+        <Text style={styles.h}>Welcome to GoDaam</Text>
         <Text style={styles.sub}>
-          Enter your Backend API Base URL (must end with <Text style={styles.mono}>/api</Text>). One URL is used for
-          login, orders, receiving, delivery, and all other features. Use HTTPS on port 443 if mobile data blocks other
-          ports. For GoDaam, use <Text style={styles.mono}>https://godam.divadivya.cloud/api</Text>.
+          Let's connect this device to your warehouse. The default server address is usually already filled in below —
+          just tap <Text style={{ fontWeight: '700', color: palette.text }}>Save & Continue</Text> to get started. Ask
+          your administrator if you're unsure.
+        </Text>
+        <Text style={styles.sub}>
+          The Backend API Base URL must end with <Text style={styles.mono}>/api</Text> and is used for login, orders,
+          receiving, delivery, and all other features. Use HTTPS on port 443 if mobile data blocks other ports. For
+          GoDaam, use <Text style={styles.mono}>https://godam.divadivya.cloud/api</Text>.
         </Text>
         <Text style={styles.label}>Backend API Base URL</Text>
         <TextInput
