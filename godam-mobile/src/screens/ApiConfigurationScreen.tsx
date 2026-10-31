@@ -21,6 +21,7 @@ import { clearAuth } from '../storage/tokenStorage';
 import { getSavedBackendApiUrl } from '../storage/backendUrlStorage';
 import { useTheme } from '../theme/ThemeContext';
 import type { ThemeDefinition } from '../theme/palettes';
+import { trackBackendUrlConfigured, trackLoginScreenViewed } from '../api/analytics';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ApiConfiguration'>;
 
@@ -128,6 +129,14 @@ export default function ApiConfigurationScreen({ navigation }: Props) {
         await clearAuth();
         setAuthHeader(null);
       }
+      let origin = '';
+      try {
+        origin = new URL(base).origin;
+      } catch {
+        origin = base;
+      }
+      await trackBackendUrlConfigured(origin);
+      await trackLoginScreenViewed();
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Could not save URL';

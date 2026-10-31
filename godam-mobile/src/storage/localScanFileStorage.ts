@@ -194,7 +194,7 @@ export async function appendRackScanRow(row: RackScanRow): Promise<{ uri: string
 
 export async function updateRackScanRow(
   id: string,
-  patch: Partial<Pick<RackScanRow, 'part_number' | 'sap_part_number'>>
+  patch: Partial<Pick<RackScanRow, 'part_number' | 'sap_part_number' | 'rack_location' | 'qty_in' | 'remarks'>>
 ): Promise<void> {
   const base = FileSystem.documentDirectory;
   if (!base) throw new Error('documentDirectory unavailable');
@@ -205,6 +205,13 @@ export async function updateRackScanRow(
 
   if (patch.part_number !== undefined) rows[idx].part_number = patch.part_number.trim();
   if (patch.sap_part_number !== undefined) rows[idx].sap_part_number = patch.sap_part_number.trim();
+  if (patch.rack_location !== undefined) rows[idx].rack_location = patch.rack_location.trim();
+  if (patch.qty_in !== undefined) {
+    const q = Number(patch.qty_in);
+    if (!Number.isFinite(q) || q <= 0) throw new Error('Quantity must be a positive number');
+    rows[idx].qty_in = q;
+  }
+  if (patch.remarks !== undefined) rows[idx].remarks = patch.remarks.trim() || '-';
 
   await writeSessionJson(base, rows);
 }

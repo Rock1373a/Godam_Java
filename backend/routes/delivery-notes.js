@@ -27,12 +27,38 @@ function trimStr(v) {
   return String(v ?? '').trim();
 }
 
+function notDeliveredOutboundSql() {
+  return `
+    AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('delivered')
+    AND LOWER(TRIM(COALESCE(o.dn_status, ''))) NOT IN ('delivered')
+    AND NOT EXISTS (SELECT 1 FROM delivered_outbounds d WHERE d.outbound_id = o.id)
+    AND NOT EXISTS (
+      SELECT 1 FROM delivery_notes dn
+      WHERE TRIM(COALESCE(dn.outbound_number, '')) IN (
+        TRIM(COALESCE(o.outbound_number, '')),
+        NULLIF(TRIM(COALESCE(o.delivery, '')), '')
+      )
+        AND (
+          LOWER(TRIM(COALESCE(dn.status, ''))) = 'delivered'
+          OR LOWER(TRIM(COALESCE(dn.delivery_status, ''))) = 'delivered'
+          OR LOWER(TRIM(COALESCE(dn.delivery_status, ''))) = 'closed'
+          OR COALESCE(dn.is_closed, 0) = 1
+        )
+    )`;
+}
+
 function assertDnEditable(dn, res) {
   if (dnIsLocked(dn)) {
     res.status(400).json({ error: 'Delivery note is closed — no further edits.' });
     return false;
   }
   return true;
+}
+
+function dnIsDelivered(dn) {
+  const status = String(dn?.status || '').trim().toLowerCase();
+  const deliveryStatus = String(dn?.delivery_status || '').trim().toLowerCase();
+  return status === 'delivered' || deliveryStatus === 'delivered';
 }
 
 function resolvePodAbsolute(stored) {
@@ -79,6 +105,15 @@ async function getOrCreateDnFromOutbound(outbound_number) {
   const dnExisting = await dbGet(`SELECT * FROM delivery_notes WHERE outbound_number = ? LIMIT 1`, [
     order.outbound_number,
   ]);
+
+  const alreadyDelivered =
+    String(order.status || '').trim().toLowerCase() === 'delivered' ||
+    String(order.dn_status || '').trim().toLowerCase() === 'delivered';
+  if (alreadyDelivered) {
+    const err = new Error('Outbound is already delivered');
+    err.statusCode = 409;
+    throw err;
+  }
 
   if (!dnExisting) {
     await dbRun('BEGIN IMMEDIATE');
@@ -256,6 +291,8 @@ router.get('/outbound-options', async (_req, res) => {
          o.sold_to AS sold_to
        FROM picked_orders po
        LEFT JOIN outbound_orders o ON o.id = po.outbound_order_id
+       WHERE 1=1
+      ${notDeliveredOutboundSql()}
        ORDER BY po.confirmed_at DESC
        LIMIT 800`
     );
@@ -975,6 +1012,38 @@ router.post('/:id/contact-person-2', requirePermission('can_upload_outbound'), a
       `UPDATE delivery_notes SET contact_person_2 = ?, contact_number_2 = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [cp2 || null, cn2 || null, id]
     );
+    res.json(await getDnView(id));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /api/delivery-notes/:id/items/:itemId/serial-no — admin backfill after delivery
+router.patch('/:id/items/:itemId/serial-no', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const itemId = Number(req.params.itemId);
+    if (!Number.isFinite(id) || !Number.isFinite(itemId)) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
+
+    const dn = await dbGet(`SELECT * FROM delivery_notes WHERE id = ?`, [id]);
+    if (!dn) return res.status(404).json({ error: 'DN not found' });
+    if (!dnIsDelivered(dn)) {
+      return res.status(400).json({ error: 'Serial numbers can only be added after the DN is delivered.' });
+    }
+
+    const item = await dbGet(`SELECT * FROM delivery_note_items WHERE id = ? AND dn_id = ?`, [itemId, id]);
+    if (!item) return res.status(404).json({ error: 'DN item not found' });
+
+    const serialNo = trimStr(req.body?.serial_no ?? '');
+    await dbRun(
+      `UPDATE delivery_note_items
+       SET serial_no = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND dn_id = ?`,
+      [serialNo || null, itemId, id]
+    );
+
     res.json(await getDnView(id));
   } catch (e) {
     res.status(500).json({ error: e.message });

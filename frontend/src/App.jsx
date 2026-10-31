@@ -28,6 +28,7 @@ import {
   ClipboardPenLine,
   Boxes,
   Smartphone,
+  Gift,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import Dashboard from './pages/Dashboard';
@@ -56,6 +57,7 @@ import SapStock from './pages/SapStock';
 import StockComparisonReport from './pages/StockComparisonReport';
 import HuaweiGodamUpload from './pages/HuaweiGodamUpload';
 import MobileApps from './pages/MobileApps';
+import Referrals from './pages/Referrals';
 import { authApi, notificationsApi, huaweiModuleApi } from './services/api';
 import FloatingAIAgent from './components/FloatingAIAgent';
 import './index.css';
@@ -465,6 +467,16 @@ function App() {
                       </NavLink>
 
                       <NavLink
+                        to="/referrals"
+                        className={({ isActive }) =>
+                          `nav-sidebar-link ${isActive ? 'nav-sidebar-link-active' : ''}`
+                        }
+                      >
+                        <Gift className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="truncate">Referrals</span>
+                      </NavLink>
+
+                      <NavLink
                         to="/delivery-note"
                         className={({ isActive }) =>
                           `nav-sidebar-link ${isActive ? 'nav-sidebar-link-active' : ''}`
@@ -790,6 +802,7 @@ function App() {
                       <Route path="/outbound-upload" element={<OutboundUpload currentUser={user} />} />
                       <Route path="/picked-orders" element={<PickedOrdersAdmin />} />
                       <Route path="/customers" element={<Customers />} />
+                      <Route path="/referrals" element={<Referrals />} />
                       <Route path="/delivery-note" element={<DeliveryNote />} />
                       <Route path="/pod-inbox" element={<PodInbox />} />
                       <Route path="/carrier-master" element={<Navigate to="/transportation-details" replace />} />

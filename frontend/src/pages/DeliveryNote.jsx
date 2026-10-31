@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Printer, CheckCircle2, FileSpreadsheet } from 'lucide-react';
 import { buildDeliveryNoteFilename, downloadDeliveryNoteExcel } from '../utils/deliveryNoteExport';
 import { authApi, carriersApi, customersApi, deliveryNotesApi } from '../services/api';
@@ -7,6 +7,7 @@ import { useTableSort } from '../hooks/useTableSort';
 import SortTh from '../components/SortTh';
 
 export default function DeliveryNote() {
+  const dnPrintRef = useRef(null);
   const location = useLocation();
   const [outboundNumber, setOutboundNumber] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,6 +17,9 @@ export default function DeliveryNote() {
   const [showContact2, setShowContact2] = useState(false);
   const [cp2DraftName, setCp2DraftName] = useState('');
   const [cp2DraftPhone, setCp2DraftPhone] = useState('');
+  const [serialDrafts, setSerialDrafts] = useState({});
+  const [serialSavingId, setSerialSavingId] = useState(null);
+  const [serialEditMode, setSerialEditMode] = useState(false);
   const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
   const [invoiceDraft, setInvoiceDraft] = useState('');
   const [packageTypeDraft, setPackageTypeDraft] = useState('Ignore');
@@ -118,13 +122,31 @@ export default function DeliveryNote() {
     }
   };
 
+  const currentDnId = dn?.id;
+  const currentDnContactPerson2 = dn?.contact_person_2;
+  const currentDnContactNumber2 = dn?.contact_number_2;
+
   useEffect(() => {
-    if (!dn) return;
-    const has2 = Boolean(trim(dn.contact_person_2) || trim(dn.contact_number_2));
+    if (!currentDnId) return;
+    const has2 = Boolean(trim(currentDnContactPerson2) || trim(currentDnContactNumber2));
     if (has2) setShowContact2(true);
-    setCp2DraftName(trim(dn.contact_person_2));
-    setCp2DraftPhone(trim(dn.contact_number_2));
-  }, [dn?.id, dn?.contact_person_2, dn?.contact_number_2]);
+    setCp2DraftName(trim(currentDnContactPerson2));
+    setCp2DraftPhone(trim(currentDnContactNumber2));
+  }, [currentDnId, currentDnContactPerson2, currentDnContactNumber2]);
+
+  useEffect(() => {
+    if (!dn?.items?.length) {
+      setSerialDrafts({});
+      setSerialEditMode(false);
+      return;
+    }
+    const next = {};
+    for (const it of dn.items) {
+      next[it.id] = trim(it?.serial_no || '');
+    }
+    setSerialDrafts(next);
+    setSerialEditMode(false);
+  }, [dn?.id, dn?.items]);
 
   const filteredDeliveryAddresses = useMemo(() => {
     const list = deliveryToCtx?.addresses || [];
@@ -162,6 +184,10 @@ export default function DeliveryNote() {
     isAdmin;
   const dnLocked =
     Number(dn?.is_closed) === 1 || String(dn?.delivery_status || '').toLowerCase() === 'closed';
+  const dnIsDelivered =
+    String(dn?.status || '').toLowerCase() === 'delivered' ||
+    String(dn?.delivery_status || '').toLowerCase() === 'delivered';
+  const canAdminEditSerials = isAdmin && dnIsDelivered;
 
   const packageValidForConfirm = useMemo(() => {
     if (!dn) return false;
@@ -202,10 +228,11 @@ export default function DeliveryNote() {
 
   const gappMarkDeliveredBlocked = useMemo(() => {
     if (!dn || !isGapp) return false;
+    if (isAdmin && !dn.confirmed_at && Number(dn.is_closed) === 1) return false;
     if (!dn.confirmed_at) return true;
     if (!Number(dn.is_closed)) return true;
     return false;
-  }, [dn, isGapp]);
+  }, [dn, isGapp, isAdmin]);
 
   const load = async () => {
     setError('');
@@ -269,7 +296,11 @@ export default function DeliveryNote() {
     try {
       if (!dnId) return;
       if (gappMarkDeliveredBlocked) {
-        alert('GAPP: wait for driver close (POD) after Confirm before Mark Delivered.');
+        alert(
+          isGapp && !dn.confirmed_at
+            ? 'GAPP: Click "Confirm for Delivery" first to notify the driver, then complete the driver flow before Mark Delivered.'
+            : 'GAPP: wait for driver close (POD) after Confirm before Mark Delivered.'
+        );
         return;
       }
       if (!hasTransportation) {
@@ -349,6 +380,12 @@ export default function DeliveryNote() {
 
   const runAdminClose = async () => {
     if (!dnId) return;
+    if (isGapp && dn && !dn.confirmed_at) {
+      alert(
+        'GAPP: Click "Confirm for Delivery" first to notify the driver. Only after that may you use Close Order (Admin) (with POD or admin override).'
+      );
+      return;
+    }
     const hasPod = Boolean(String(dn?.pod_file_path || '').trim());
     if (!hasPod && !adminCloseOverride) {
       alert('Add POD on the task or check Admin override.');
@@ -658,8 +695,64 @@ export default function DeliveryNote() {
   }, [view?.package_type, view?.pallet_qty, view?.box_qty]);
 
   const handlePrintA4 = () => {
-    const prevTitle = document.title;
+    if (!view) return;
     const base = buildDeliveryNoteFilename(view, '.pdf').replace(/\.pdf$/i, '');
+    const esc = (s) =>
+      String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const mount = dnPrintRef.current;
+    if (mount) {
+      const wrap = mount.querySelector('.dn-wrap');
+      const styleEl = mount.querySelector('style');
+      const css = styleEl?.textContent || '';
+      const bodyHtml = wrap?.outerHTML || '';
+      if (!bodyHtml) return;
+      const w = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1200');
+      if (!w) {
+        alert('Pop-up blocked — allow pop-ups for this site, or use Print from the browser menu.');
+        return;
+      }
+      const origin = window.location.origin;
+      w.document.open();
+      w.document.write(
+        `<!DOCTYPE html><html><head><meta charset="utf-8"/><base href="${origin}/"/><title>${esc(base)}</title>` +
+          `<style>${css}</style></head><body style="margin:0;background:#fff">${bodyHtml}</body></html>`
+      );
+      w.document.close();
+      w.focus();
+      w.addEventListener(
+        'afterprint',
+        () => {
+          try {
+            w.close();
+          } catch {
+            /* ignore */
+          }
+        },
+        { once: true }
+      );
+      setTimeout(() => {
+        try {
+          w.print();
+        } catch {
+          /* ignore */
+        }
+      }, 250);
+      setTimeout(() => {
+        try {
+          if (!w.closed) w.close();
+        } catch {
+          /* ignore */
+        }
+      }, 120_000);
+      return;
+    }
+
+    const prevTitle = document.title;
     document.title = base;
     const restore = () => {
       document.title = prevTitle;
@@ -696,6 +789,26 @@ export default function DeliveryNote() {
     }
   };
 
+  const saveSerialNo = async (item) => {
+    if (!dnId || !item?.id) return;
+    if (!canAdminEditSerials) {
+      alert('Serial numbers can only be added by admin after the DN is delivered and before it is closed.');
+      return;
+    }
+    setSerialSavingId(item.id);
+    try {
+      const data = await deliveryNotesApi.updateSerialNo(dnId, item.id, {
+        serial_no: trim(serialDrafts[item.id] || ''),
+      });
+      setDn(data);
+      await refreshTimeline(dnId);
+    } catch (e) {
+      alert(e?.response?.data?.error || e.message);
+    } finally {
+      setSerialSavingId(null);
+    }
+  };
+
   const handleContactPerson2Toggle = async () => {
     if (!dnId) return;
     const hasSaved = Boolean(trim(dn?.contact_person_2) || trim(dn?.contact_number_2));
@@ -728,7 +841,10 @@ export default function DeliveryNote() {
       <div className="mb-2 dn-no-print">
         <h2 className="text-base font-bold text-gray-900 leading-tight">Delivery Note (DN)</h2>
         <p className="text-[11px] text-gray-600">
-          A4 print / Save as PDF, and Excel export (same structure). File names: RG_Invoice_Outbound_CustomerPO_CustomerName_GappPO
+          A4 print / Save as PDF, and Excel export (same structure). File names: RG_Invoice_Outbound_CustomerPO_CustomerName_GappPO.
+          <span className="block mt-1 text-amber-800">
+            PDF tip (Chrome / Edge): in the print dialog open <strong>More settings</strong> and turn <strong>off Headers and footers</strong> — that removes the site URL and printed date/time from the margins.
+          </span>
         </p>
       </div>
 
@@ -1813,8 +1929,9 @@ export default function DeliveryNote() {
         </div>
       ) : null}
 
-      {/* A4 Printable DN */}
-      <div className="dn-wrap bg-white border rounded-xl shadow-sm p-4">
+      {/* A4 Printable DN (ref = markup + CSS for clean print window — no app chrome) */}
+      <div ref={dnPrintRef}>
+        <div className="dn-wrap bg-white border rounded-xl shadow-sm p-4">
         <div className="dn-page" aria-label="Delivery Note A4 Page">
           {/* TOP HEADER */}
           <div className="dn-top">
@@ -1921,6 +2038,15 @@ export default function DeliveryNote() {
             ) : null}
           </div>
 
+          {canAdminEditSerials ? (
+            <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: '#0f5132', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span>Admin serial editing is available for this delivered DN.</span>
+              <button type="button" className="btn-secondary" onClick={() => setSerialEditMode((v) => !v)}>
+                {serialEditMode ? 'Hide serial editor' : 'Edit / add serial numbers'}
+              </button>
+            </div>
+          ) : null}
+
           {/* ITEM TABLE */}
           <table className="dn-grid">
             <thead>
@@ -1989,7 +2115,29 @@ export default function DeliveryNote() {
                   <td>{it.description || ''}</td>
                   <td className="c">{it.qty}</td>
                   <td className="c">{it.uom || ''}</td>
-                  <td className="c">{it.serial_no || '-'}</td>
+                  <td className="c">
+                    {canAdminEditSerials && serialEditMode ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'center' }}>
+                        <input
+                          type="text"
+                          value={serialDrafts[it.id] ?? ''}
+                          onChange={(e) => setSerialDrafts((prev) => ({ ...prev, [it.id]: e.target.value }))}
+                          placeholder="Serial no."
+                          style={{ width: 220, maxWidth: '100%' }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => saveSerialNo(it)}
+                          disabled={serialSavingId === it.id}
+                        >
+                          {serialSavingId === it.id ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    ) : (
+                      it.serial_no || '-'
+                    )}
+                  </td>
                   <td className="c">{it.condition_text || it.condition || 'New'}</td>
                 </tr>
               ))}
@@ -2211,8 +2359,11 @@ export default function DeliveryNote() {
             display: table-header-group;
           }
           .btn-primary, .btn-secondary, header, aside, .dn-screen-toolbar, .dn-no-print { display: none !important; }
+          /* Light “stamp” box reads as gray shading on PDF — hide for print */
+          .dn-stamp-watermark { display: none !important; }
         }
       `}</style>
+      </div>
     </div>
   );
 }

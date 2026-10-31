@@ -27,6 +27,7 @@ import { loadAuth, isExpiredIso, clearAuth } from './src/storage/tokenStorage';
 import { initApiClientFromStorage, setAuthHeader } from './src/api/client';
 import { AppErrorBoundary } from './src/components/AppErrorBoundary';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
+import { trackAppLaunched, trackLoginScreenViewed } from './src/api/analytics';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -49,6 +50,7 @@ function AppNavigator() {
 
   useEffect(() => {
     (async () => {
+      await trackAppLaunched();
       const hasSavedUrl = await initApiClientFromStorage();
       if (!hasSavedUrl) {
         await clearAuth();
@@ -61,6 +63,7 @@ function AppNavigator() {
         await clearAuth();
         setAuthHeader(null);
         setBoot({ ready: true, initial: 'Login' });
+        await trackLoginScreenViewed();
       } else {
         setAuthHeader(token);
         setBoot({ ready: true, initial: 'Home' });

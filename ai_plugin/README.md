@@ -17,9 +17,15 @@ Create a `.env` (or export env vars) in the repo root or run directory:
 
 ```bash
 # LLM provider
-AI_PROVIDER=openai            # openai | anthropic | gemini
-AI_MODEL=gpt-4.1
+# AI_PROVIDER can be: openai | openrouter | perplexity | anthropic | gemini
+# If AI_PROVIDER is omitted, the plugin auto-selects based on available keys.
+AI_PROVIDER=openrouter
+AI_MODEL=perplexity/sonar-pro
 OPENAI_API_KEY=...
+OPENROUTER_API_KEY=...
+OPENROUTER_HTTP_REFERER=https://yourdomain.com
+OPENROUTER_APP_NAME=GoDam AI Assistant
+PERPLEXITY_API_KEY=...
 ANTHROPIC_API_KEY=...
 GEMINI_API_KEY=...
 

@@ -23,7 +23,9 @@ PORT="${GODAM_EXPO_PORT:-8090}"
 
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 if [[ -z "${ANDROID_SDK_ROOT:-}" ]]; then
-  if [[ -d "$HOME/Library/Android/sdk" ]]; then
+  if [[ -d "$ROOT_DIR/tools/android-sdk/platform-tools" ]]; then
+    export ANDROID_SDK_ROOT="$ROOT_DIR/tools/android-sdk"
+  elif [[ -d "$HOME/Library/Android/sdk" ]]; then
     export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
   elif [[ -d "$HOME/Android/Sdk" ]]; then
     export ANDROID_SDK_ROOT="$HOME/Android/Sdk"

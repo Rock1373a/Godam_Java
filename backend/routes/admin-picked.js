@@ -7,6 +7,26 @@ const router = express.Router();
 const dbAll = promisify(db.all.bind(db));
 const dbGet = promisify(db.get.bind(db));
 
+function notDeliveredOutboundSql() {
+  return `
+    AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('delivered')
+    AND LOWER(TRIM(COALESCE(o.dn_status, ''))) NOT IN ('delivered')
+    AND NOT EXISTS (SELECT 1 FROM delivered_outbounds d WHERE d.outbound_id = o.id)
+    AND NOT EXISTS (
+      SELECT 1 FROM delivery_notes dn
+      WHERE TRIM(COALESCE(dn.outbound_number, '')) IN (
+        TRIM(COALESCE(o.outbound_number, '')),
+        NULLIF(TRIM(COALESCE(o.delivery, '')), '')
+      )
+        AND (
+          LOWER(TRIM(COALESCE(dn.status, ''))) = 'delivered'
+          OR LOWER(TRIM(COALESCE(dn.delivery_status, ''))) = 'delivered'
+          OR LOWER(TRIM(COALESCE(dn.delivery_status, ''))) = 'closed'
+          OR COALESCE(dn.is_closed, 0) = 1
+        )
+    )`;
+}
+
 router.get('/', async (req, res) => {
   try {
     const { outbound_id, user_id, from_date } = req.query;
@@ -36,6 +56,7 @@ router.get('/', async (req, res) => {
       )`;
       params.push(Number(user_id));
     }
+    sql += notDeliveredOutboundSql();
     sql += ` ORDER BY po.confirmed_at DESC LIMIT 500`;
 
     const rows = await dbAll(sql, params);

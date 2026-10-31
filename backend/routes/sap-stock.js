@@ -354,8 +354,6 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       );
       await dbRun('COMMIT');
 
-      await refreshMainStockSapQtyFromBatch(db, batchId);
-
       res.json({
         ok: true,
         batch_id: batchId,
@@ -364,6 +362,12 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         qty_1002: sum1002,
         qty_1004: sum1004,
         qty_1007: sum1007,
+      });
+
+      setImmediate(() => {
+        refreshMainStockSapQtyFromBatch(db, batchId).catch((refreshErr) => {
+          console.error(`❌ SAP stock refresh failed for batch ${batchId}:`, refreshErr);
+        });
       });
     } catch (e) {
       await dbRun('ROLLBACK').catch(() => {});
@@ -426,8 +430,13 @@ router.post('/clear-latest-upload', async (_req, res) => {
     }
 
     const nextBatch = await getLatestProcessedBatchId();
-    if (nextBatch) await refreshMainStockSapQtyFromBatch(db, nextBatch);
-    else {
+    if (nextBatch) {
+      setImmediate(() => {
+        refreshMainStockSapQtyFromBatch(db, nextBatch).catch((refreshErr) => {
+          console.error(`❌ SAP stock refresh failed after clearing batch ${batchId}:`, refreshErr);
+        });
+      });
+    } else {
       await dbRun(`UPDATE main_stock SET sap_qty = 0, updated_at = CURRENT_TIMESTAMP WHERE 1=1`);
     }
 

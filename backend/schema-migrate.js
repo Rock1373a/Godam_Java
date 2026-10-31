@@ -817,11 +817,69 @@ async function migrateGodamSchema(db) {
     await run(`DELETE FROM carriers`);
   }
 
+  await ensureColumn(db, 'customers', 'referral_code', 'TEXT UNIQUE');
+  await ensureColumn(db, 'customers', 'referred_by_customer_id', 'INTEGER REFERENCES customers(id)');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS customer_referrals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      referrer_customer_id INTEGER NOT NULL,
+      referred_customer_id INTEGER NOT NULL,
+      referral_code_used TEXT NOT NULL,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'qualified', 'rewarded', 'cancelled')),
+      qualified_at DATETIME,
+      rewarded_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (referrer_customer_id) REFERENCES customers(id),
+      FOREIGN KEY (referred_customer_id) REFERENCES customers(id),
+      UNIQUE(referred_customer_id)
+    )
+  `);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS referral_rewards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      referral_id INTEGER,
+      reward_type TEXT NOT NULL DEFAULT 'credit',
+      reward_amount REAL NOT NULL DEFAULT 0,
+      reward_currency TEXT DEFAULT 'SAR',
+      description TEXT,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'issued', 'redeemed', 'expired')),
+      issued_at DATETIME,
+      redeemed_at DATETIME,
+      expires_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (customer_id) REFERENCES customers(id),
+      FOREIGN KEY (referral_id) REFERENCES customer_referrals(id)
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_referral_rewards_customer ON referral_rewards(customer_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_referral_rewards_status ON referral_rewards(status)`);
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_name TEXT NOT NULL,
+      event_category TEXT NOT NULL DEFAULT 'onboarding',
+      user_id INTEGER,
+      session_id TEXT,
+      device_id TEXT,
+      platform TEXT,
+      app_version TEXT,
+      event_data_json TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_analytics_events_name ON analytics_events(event_name, created_at DESC)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_analytics_events_session ON analytics_events(session_id, created_at DESC)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_analytics_events_device ON analytics_events(device_id, created_at DESC)`);
+
   await seedDefaultRolePermissions(db);
   await ensureTransportationPermissionRows(db);
 }
 
-/** Additive permissions for existing DBs (seedDefaultRolePermissions only runs on empty table). */
 async function ensureTransportationPermissionRows(db) {
   const get = promisify(db.get.bind(db));
   const run = promisify(db.run.bind(db));

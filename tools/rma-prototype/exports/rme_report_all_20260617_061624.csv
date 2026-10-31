@@ -1,0 +1,2 @@
+id,rme_number,case_id,partner_name,part_number,quantity,serial_number,rme_type,status,outbound_number,replacement_serial_number,created_at,received_at,outbound_at,delivered_at,email_subject,notes
+1,RME-TEST-001,CASE-99,Huawei,PN-12345,1,SN-ABC,DOA,closed,OB-7788,SN-REPL-999,2026-06-17 06:16:24 UTC,2026-06-17 06:16:24 UTC,2026-06-17 06:16:24 UTC,2026-06-17 06:16:24 UTC,[RME RME-TEST-001] Case CASE-99 — Huawei / PN-12345,

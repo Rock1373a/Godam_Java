@@ -11,6 +11,8 @@ const MASTER_FIELDS = [
   { key: 'accessories', label: 'Accessories', required: true },
 ];
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export default function HuaweiGodamUpload({ currentUser }) {
   const isAdmin = String(currentUser?.role || '').toLowerCase() === 'admin';
   const [loading, setLoading] = useState(false);
@@ -142,21 +144,43 @@ export default function HuaweiGodamUpload({ currentUser }) {
     setMsg('');
     try {
       const res = await huaweiGodamApi.createBatch(mastersRef.current, dnFiles, rulesFile);
-      setMsg(`Batch #${res?.id || ''} completed.`);
+      const batchId = Number(res?.id || 0);
+      if (!batchId) {
+        setMsg('Upload queued, but no batch id was returned. Refresh to check status.');
+        return;
+      }
+
+      setMsg(`Batch #${batchId} queued. Processing in background…`);
       setDnFiles([]);
       setRulesFile(null);
       setMasters({});
       await load();
-      if (res?.id) {
-        setSelectedLoading(true);
-        try {
-          const d = await huaweiGodamApi.getBatch(res.id);
+
+      const pollUntilDone = async () => {
+        for (let i = 0; i < 180; i += 1) {
+          const d = await huaweiGodamApi.getBatch(batchId);
           setSelected(d || null);
-        } catch {
-          setSelected(null);
-        } finally {
-          setSelectedLoading(false);
+          const status = String(d?.batch?.status || '').toLowerCase();
+          if (status === 'completed' || status === 'failed') return d;
+          await sleep(2000);
         }
+        return null;
+      };
+
+      setSelectedLoading(true);
+      try {
+        const done = await pollUntilDone();
+        if (done?.batch?.status === 'completed') {
+          setMsg(`Batch #${batchId} completed.`);
+          await load();
+        } else if (done?.batch?.status === 'failed') {
+          setMsg(`Batch #${batchId} failed. Open the batch details for the error message.`);
+          await load();
+        } else {
+          setMsg(`Batch #${batchId} is still running. Refresh later to see final results.`);
+        }
+      } finally {
+        setSelectedLoading(false);
       }
     } catch (e) {
       setMsg(e?.response?.data?.error || e?.message || 'Upload failed');

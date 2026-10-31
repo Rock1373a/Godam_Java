@@ -1,8 +1,17 @@
-const { Expo } = require('expo-server-sdk');
 const { promisify } = require('util');
 const db = require('../db');
 
-const expo = new Expo();
+/** expo-server-sdk v6+ is ESM-only; lazy-load from CommonJS. */
+let expoSdkPromise = null;
+function getExpoSdk() {
+  if (!expoSdkPromise) {
+    expoSdkPromise = import('expo-server-sdk').then((mod) => ({
+      Expo: mod.Expo,
+      expo: new mod.Expo(),
+    }));
+  }
+  return expoSdkPromise;
+}
 
 async function logNotification(userId, title, body, data) {
   const run = promisify(db.run.bind(db));
@@ -17,6 +26,7 @@ async function logNotification(userId, title, body, data) {
  * Always includes admins.
  */
 async function getExpoTokensForPermission(permissionKey) {
+  const { Expo } = await getExpoSdk();
   const all = promisify(db.all.bind(db));
   const sql = `
     SELECT DISTINCT pd.expo_push_token, pd.user_id
@@ -58,6 +68,7 @@ async function getExpoTokensForPermission(permissionKey) {
 }
 
 async function getExpoTokensForRoles(roleList) {
+  const { Expo } = await getExpoSdk();
   const all = promisify(db.all.bind(db));
   const placeholders = roleList.map(() => '?').join(',');
   const rows = await all(
@@ -103,6 +114,7 @@ async function getUserIdsWhoHaveAnyPermission(permissionKeys) {
 
 async function sendExpoPushToTokens(rows, title, body, data = {}) {
   if (!rows || !rows.length) return [];
+  const { expo } = await getExpoSdk();
   const messages = [];
   for (const r of rows) {
     messages.push({
@@ -200,6 +212,7 @@ async function notifyInboundPutaway(title, body, data) {
 /** Push + in-app log for specific user ids (e.g. matched driver). */
 async function sendExpoPushToUserIds(userIds, title, body, data = {}) {
   if (!userIds?.length) return [];
+  const { Expo } = await getExpoSdk();
   const all = promisify(db.all.bind(db));
   const ph = userIds.map(() => '?').join(',');
   const rows = await all(

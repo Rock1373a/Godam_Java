@@ -16,6 +16,7 @@ const StockByRackSummary = ({ currentUser }) => {
   const [adjBusy, setAdjBusy] = useState(false);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [exportBusy, setExportBusy] = useState(false);
   const [partNumber, setPartNumber] = useState('');
   const [sapPn, setSapPn] = useState('');
   const [rack, setRack] = useState('');
@@ -54,26 +55,20 @@ const StockByRackSummary = ({ currentUser }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.part_number, params.sap_part_number, params.rack_location, params.available_only]);
 
-  const exportExcel = () => {
-    const exportRows = (rows || []).map((r) => ({
-      part_number: r.part_number,
-      sap_part_number: r.sap_part_number,
-      description: r.description,
-      rack_location: r.rack_location,
-      total_in_qty: r.total_in_qty,
-      total_out_qty: r.total_out_qty,
-      available_qty: r.available_qty,
-      first_entry_date: r.first_entry_date,
-      last_updated: r.last_updated,
-    }));
-    const ws = XLSX.utils.json_to_sheet(exportRows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Stock By Rack Summary');
-    XLSX.writeFile(wb, 'stock-by-rack-summary.xlsx');
+  const fetchAllExportRows = async () => {
+    const batchSize = 1000;
+    const all = [];
+    for (let offset = 0; ; offset += batchSize) {
+      const batch = await stockByRackApi.list({ ...params, limit: batchSize, offset });
+      const rowsBatch = Array.isArray(batch) ? batch : [];
+      all.push(...rowsBatch);
+      if (rowsBatch.length < batchSize) break;
+    }
+    return all;
   };
 
-  const exportCsv = () => {
-    const exportRows = (rows || []).map((r) => ({
+  const buildExportRows = (sourceRows) =>
+    (sourceRows || []).map((r) => ({
       part_number: r.part_number,
       sap_part_number: r.sap_part_number,
       description: r.description,
@@ -84,15 +79,48 @@ const StockByRackSummary = ({ currentUser }) => {
       first_entry_date: r.first_entry_date,
       last_updated: r.last_updated,
     }));
-    const ws = XLSX.utils.json_to_sheet(exportRows);
-    const csv = XLSX.utils.sheet_to_csv(ws);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'stock-by-rack-summary.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+
+  const exportExcel = async () => {
+    try {
+      setExportBusy(true);
+      const exportRows = buildExportRows(await fetchAllExportRows());
+      if (!exportRows.length) {
+        alert('No rack rows found for export.');
+        return;
+      }
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Stock By Rack Summary');
+      XLSX.writeFile(wb, 'stock-by-rack-summary.xlsx');
+    } catch (e) {
+      alert(e.response?.data?.error || e.message || 'Export Excel failed');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const exportCsv = async () => {
+    try {
+      setExportBusy(true);
+      const exportRows = buildExportRows(await fetchAllExportRows());
+      if (!exportRows.length) {
+        alert('No rack rows found for export.');
+        return;
+      }
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      const csv = XLSX.utils.sheet_to_csv(ws);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'stock-by-rack-summary.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e.response?.data?.error || e.message || 'Export CSV failed');
+    } finally {
+      setExportBusy(false);
+    }
   };
 
   const rackSummarySort = useCallback((r, k) => {
@@ -194,13 +222,13 @@ const StockByRackSummary = ({ currentUser }) => {
               />
               Available only
             </label>
-            <button type="button" className="btn-secondary flex items-center gap-1" onClick={exportCsv}>
+            <button type="button" className="btn-secondary flex items-center gap-1" onClick={exportCsv} disabled={exportBusy}>
               <Download size={14} />
-              Export CSV
+              {exportBusy ? 'Exporting…' : 'Export CSV'}
             </button>
-            <button type="button" className="btn-secondary flex items-center gap-1" onClick={exportExcel}>
+            <button type="button" className="btn-secondary flex items-center gap-1" onClick={exportExcel} disabled={exportBusy}>
               <Download size={14} />
-              Export Excel
+              {exportBusy ? 'Exporting…' : 'Export Excel'}
             </button>
           </div>
         </div>

@@ -8,6 +8,8 @@
  *   node scripts/wipe-all-data.js --yes              # wipe everything (including users)
  *   node scripts/wipe-all-data.js --yes --keep-admin # wipe all data but keep user rows where role is admin
  *
+ * To wipe everything and set a fresh admin password in one step:
+ *   node scripts/wipe-and-reset-admin.js --yes --password 'your-password'
  * Stop the API/dev server first if you see "database is locked".
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });

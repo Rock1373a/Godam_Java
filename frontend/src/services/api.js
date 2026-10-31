@@ -264,6 +264,8 @@ export const deliveryNotesApi = {
   saveTransportation: async (id, payload) => (await api.post(`/delivery-notes/${id}/transportation`, payload)).data,
   savePackageInfo: async (id, payload) => (await api.post(`/delivery-notes/${id}/package-info`, payload)).data,
   saveContactPerson2: async (id, payload) => (await api.post(`/delivery-notes/${id}/contact-person-2`, payload)).data,
+  updateSerialNo: async (id, itemId, payload) =>
+    (await api.patch(`/delivery-notes/${id}/items/${itemId}/serial-no`, payload)).data,
   setHold: async (id, is_hold) => (await api.post(`/delivery-notes/${id}/hold`, { is_hold })).data,
   markDelivered: async (id) => (await api.post(`/delivery-notes/${id}/mark-delivered`)).data,
   print: async (id) => (await api.get(`/delivery-notes/${id}/print`)).data,
@@ -584,6 +586,17 @@ export const godamExcelApi = {
     }
     return { blob: res.data, meta };
   },
+};
+
+export const referralsApi = {
+  stats: async () => (await api.get('/referrals/stats')).data,
+  getCode: async (customerId) => (await api.get(`/referrals/code/${customerId}`)).data,
+  validate: async (code) => (await api.get(`/referrals/validate/${code}`)).data,
+  apply: async (payload) => (await api.post('/referrals/apply', payload)).data,
+  status: async (customerId) => (await api.get(`/referrals/status/${customerId}`)).data,
+  reward: async (payload) => (await api.post('/referrals/reward', payload)).data,
+  issueReward: async (rewardId) => (await api.post(`/referrals/reward/${rewardId}/issue`)).data,
+  redeemReward: async (rewardId) => (await api.post(`/referrals/reward/${rewardId}/redeem`)).data,
 };
 
 export default api;

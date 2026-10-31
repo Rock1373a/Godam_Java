@@ -30,6 +30,9 @@ releases/*.apk
 /test/.pulled-backend.env
 /test/GoDam-test-release.apk
 
+# Local Android SDK (see scripts/download-android-sdk.sh)
+tools/android-sdk/
+
 # Local tooling / logs
 .godam/
 *.pid
@@ -55,3 +58,15 @@ releases/*.apk
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Sample / demo data (do not commit)
+Sample data.*
+**/sample-data/
+backend/sample-data/
+exports/*.xlsx
+exports/*.xls
+exports/*.xlsm
+exports/*.pdf
+*.xlsm
+GoDam_Review_Improvements.pptx
+RG_*.pdf

@@ -208,68 +208,80 @@ router.post('/batches', (req, res) => {
         storage_dir_relative: storageRelative,
       });
 
-      let stdout = '';
-      try {
-        const py = await execFile(PYTHON, [MATCHER_CLI, inputDir, outputDir, rulesPath], {
-          cwd: PLUGIN_ROOT,
-          maxBuffer: 50 * 1024 * 1024,
-          env: { ...process.env, PYTHONPATH: PLUGIN_ROOT, PYTHONUNBUFFERED: '1' },
-        });
-        stdout = py.stdout || '';
-      } catch (e) {
-        const stderr = e.stderr?.toString() || '';
-        const out = e.stdout?.toString() || '';
-        const parsed = extractLastJsonObject(out);
-        const msg = parsed?.error || e.message || 'Matcher failed';
-        await updateBatch(batchId, {
-          status: 'failed',
-          completed_at: new Date().toISOString(),
-          error_message: `${msg}${stderr ? `\n${stderr.slice(0, 4000)}` : ''}`,
-          matcher_stdout: String(out).slice(0, 12000),
-        });
-        const detail = [
-          msg,
-          stderr ? `\n--- stderr ---\n${stderr.slice(0, 8000)}` : '',
-          out ? `\n--- stdout ---\n${String(out).slice(0, 8000)}` : '',
-        ]
-          .filter(Boolean)
-          .join('');
-        throw new Error(detail);
-      }
-
-      let stats = {};
-      try {
-        const parsed = extractLastJsonObject(stdout);
-        stats = parsed || {};
-      } catch {
-        stats = {};
-      }
-      if (stats.error) {
-        await updateBatch(batchId, {
-          status: 'failed',
-          completed_at: new Date().toISOString(),
-          error_message: stats.error,
-          matcher_stdout: String(stdout).slice(0, 12000),
-        });
-        throw new Error(stats.error);
-      }
-
-      await importHuaweiGodamBatch(batchId, storageRelative);
-
-      await updateBatch(batchId, {
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-        matcher_stats_json: JSON.stringify(stats),
-        matcher_stdout: String(stdout).slice(0, 12000),
-      });
-
-      res.status(201).json({
+      res.status(202).json({
         id: batchId,
         uid: batchUid,
-        status: 'completed',
-        stats,
+        status: 'running',
         storage_dir_relative: storageRelative,
       });
+
+      setImmediate(() => {
+        (async () => {
+          await updateBatch(batchId, { started_at: new Date().toISOString() });
+
+          let stdout = '';
+          try {
+            const py = await execFile(PYTHON, [MATCHER_CLI, inputDir, outputDir, rulesPath], {
+              cwd: PLUGIN_ROOT,
+              maxBuffer: 50 * 1024 * 1024,
+              env: { ...process.env, PYTHONPATH: PLUGIN_ROOT, PYTHONUNBUFFERED: '1' },
+            });
+            stdout = py.stdout || '';
+          } catch (e) {
+            const stderr = e.stderr?.toString() || '';
+            const out = e.stdout?.toString() || '';
+            const parsed = extractLastJsonObject(out);
+            const msg = parsed?.error || e.message || 'Matcher failed';
+            await updateBatch(batchId, {
+              status: 'failed',
+              completed_at: new Date().toISOString(),
+              error_message: `${msg}${stderr ? `\n${stderr.slice(0, 4000)}` : ''}`,
+              matcher_stdout: String(out).slice(0, 12000),
+            });
+            console.error(`[huawei-godam] batch ${batchId} matcher failed:`, msg, stderr || out || '');
+            return;
+          }
+
+          let stats = {};
+          try {
+            const parsed = extractLastJsonObject(stdout);
+            stats = parsed || {};
+          } catch {
+            stats = {};
+          }
+          if (stats.error) {
+            await updateBatch(batchId, {
+              status: 'failed',
+              completed_at: new Date().toISOString(),
+              error_message: stats.error,
+              matcher_stdout: String(stdout).slice(0, 12000),
+            });
+            console.error(`[huawei-godam] batch ${batchId} matcher reported error:`, stats.error);
+            return;
+          }
+
+          await importHuaweiGodamBatch(batchId, storageRelative);
+
+          await updateBatch(batchId, {
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+            matcher_stats_json: JSON.stringify(stats),
+            matcher_stdout: String(stdout).slice(0, 12000),
+          });
+        })().catch(async (err) => {
+          console.error(`[huawei-godam] batch ${batchId} background job failed:`, err);
+          try {
+            await updateBatch(batchId, {
+              status: 'failed',
+              completed_at: new Date().toISOString(),
+              error_message: err?.message || String(err),
+            });
+          } catch (updateErr) {
+            console.error(`[huawei-godam] batch ${batchId} failed to persist error state:`, updateErr);
+          }
+        });
+      });
+      return;
     })
     .catch((e) => {
       if (!res.headersSent) res.status(400).json({ error: e.message || 'Huawei GoDam batch failed' });

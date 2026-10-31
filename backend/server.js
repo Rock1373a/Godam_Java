@@ -80,7 +80,10 @@ app.get('/api/health', (_req, res) => {
     message: 'GoDam API running',
   });
 });
+/** Anonymous APK install link (same file as admin download; disable with MOBILE_APP_DISABLE_PUBLIC_APK=1) */
+app.use('/api/mobile-app/public', require('./routes/public-mobile-app'));
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/analytics', require('./routes/analytics'));
 
 // Protected routes (login required)
 const {
@@ -134,6 +137,7 @@ app.use('/api/pick-change-requests', ...webAuth, requireAdmin, require('./routes
 app.use('/api/ai', ...webAuth, require('./routes/ai'));
 
 app.use('/api/notifications', requireAuth, require('./routes/notifications'));
+app.use('/api/referrals', ...webAuth, require('./routes/referrals'));
 
 app.post(
   '/api/orders/:id/mark-delivered',

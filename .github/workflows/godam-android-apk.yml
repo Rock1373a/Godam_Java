@@ -1,0 +1,31 @@
+# Build a release APK via Expo EAS (see godam-mobile/eas.json → production profile).
+# Add repo secret EXPO_TOKEN from https://expo.dev/accounts/[you]/settings/access-tokens
+# then: Actions → "Godam Android APK (EAS)" → Run workflow.
+# When the job finishes, the log ends with an https://expo.dev/... install link for the APK.
+name: Godam Android APK (EAS)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  eas-android-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: godam-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: godam-mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: EAS Build (APK, waits for completion)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: npx eas-cli build --platform android --profile production --non-interactive --wait

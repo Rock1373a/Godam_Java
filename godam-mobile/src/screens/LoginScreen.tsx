@@ -6,6 +6,7 @@ import { saveAuth } from '../storage/tokenStorage';
 import { getDisplayApiOrigin, setAuthHeader } from '../api/client';
 import { useTheme } from '../theme/ThemeContext';
 import type { ThemeDefinition } from '../theme/palettes';
+import { trackLoginSuccess, trackLoginFailure } from '../api/analytics';
 
 export type RootStackParamList = {
   ApiConfiguration: undefined;
@@ -75,6 +76,7 @@ export default function LoginScreen({ navigation }: Props) {
       const res = await login(username.trim(), password);
       await saveAuth(res.token, res.expires_at || null);
       setAuthHeader(res.token);
+      await trackLoginSuccess(username.trim());
       navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: string } }; message?: string };
@@ -84,6 +86,7 @@ export default function LoginScreen({ navigation }: Props) {
         'Error';
       const origin = getDisplayApiOrigin();
       const hint = loginErrorExtra(e, origin);
+      await trackLoginFailure(base);
       Alert.alert('Login failed', `${base}${hint}`);
     } finally {
       setLoading(false);

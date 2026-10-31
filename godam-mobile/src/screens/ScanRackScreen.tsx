@@ -28,6 +28,8 @@ import { extractTextRemote } from '../api/ocrApi';
 import { getDisplayApiOrigin } from '../api/client';
 import { ScanRoiOverlay } from '../components/ScanRoiOverlay';
 import { ScanRoiToolbar } from '../components/ScanRoiToolbar';
+import { PartSuggestInput, type PartSuggestRow } from '../components/StockSuggestFields';
+import { suggestMainStockForMobile } from '../api/stockLookupApi';
 import {
   DEFAULT_SCAN_ROI,
   isBarcodeCenterInRoi,
@@ -105,6 +107,10 @@ export default function ScanRackScreen() {
   const [editTarget, setEditTarget] = useState<RackScanRowPersisted | null>(null);
   const [editPart, setEditPart] = useState('');
   const [editSap, setEditSap] = useState('');
+  const [editRack, setEditRack] = useState('');
+  const [editQty, setEditQty] = useState('');
+  const [editRemarks, setEditRemarks] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<RackScanRowPersisted | null>(null);
   const refRack = useRef<TextInput>(null);
   const refQty = useRef<TextInput>(null);
 
@@ -116,6 +122,9 @@ export default function ScanRackScreen() {
   const [ocrBusy, setOcrBusy] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [roi, setRoi] = useState<ScanRoi>(DEFAULT_SCAN_ROI);
+  /** When true, the next barcode decode in the ROI is accepted (same idea as OCR capture button). */
+  const [barcodeArmUi, setBarcodeArmUi] = useState(false);
+  const barcodeArmedRef = useRef(false);
   const lastBarcodeAt = useRef(0);
   const cameraRef = useRef<InstanceType<typeof CameraView> | null>(null);
   const previewLayoutRef = useRef({ width: 0, height: 0 });
@@ -135,6 +144,13 @@ export default function ScanRackScreen() {
     }
   }, [barcodeOpen, ocrOpen]);
 
+  useEffect(() => {
+    if (!barcodeOpen) {
+      barcodeArmedRef.current = false;
+      setBarcodeArmUi(false);
+    }
+  }, [barcodeOpen]);
+
   const refreshSavedRows = useCallback(async () => {
     try {
       const rows = await loadSessionRowsNewestFirst();
@@ -142,6 +158,22 @@ export default function ScanRackScreen() {
     } catch {
       setSavedRows([]);
     }
+  }, []);
+
+  /** Part dropdown = main stock part numbers only (`/mobile/stock/main/suggest`). */
+  const fetchPartSuggest = useCallback((q: string) => suggestMainStockForMobile(q), []);
+
+  const onPartPick = useCallback((row: PartSuggestRow) => {
+    const sp = row.sap_part_number != null ? String(row.sap_part_number).trim() : '';
+    setSap(sp || row.part_number.trim());
+  }, []);
+
+  const clearEntryForm = useCallback(() => {
+    setPart('');
+    setSap('');
+    setRack('');
+    setQty('');
+    setRemarks('-');
   }, []);
 
   useFocusEffect(
@@ -166,6 +198,8 @@ export default function ScanRackScreen() {
     }
     if (!(await ensureCameraPermission())) return;
     lastBarcodeAt.current = 0;
+    barcodeArmedRef.current = false;
+    setBarcodeArmUi(false);
     setBarcodeOpen(true);
   };
 
@@ -179,16 +213,25 @@ export default function ScanRackScreen() {
     setOcrOpen(true);
   };
 
+  const armBarcodeScan = useCallback(() => {
+    lastBarcodeAt.current = 0;
+    barcodeArmedRef.current = true;
+    setBarcodeArmUi(true);
+  }, []);
+
   const onBarcodeScanned = useCallback((result: BarcodeScanningResult) => {
+    if (!barcodeArmedRef.current) return;
     const { width: pw, height: ph } = previewLayoutRef.current;
     if (!isBarcodeCenterInRoi(result.bounds, pw, ph, roiRef.current)) {
       return;
     }
-    const now = Date.now();
-    if (now - lastBarcodeAt.current < 900) return;
-    lastBarcodeAt.current = now;
     const data = result.data?.trim();
     if (!data) return;
+    const now = Date.now();
+    if (now - lastBarcodeAt.current < 400) return;
+    lastBarcodeAt.current = now;
+    barcodeArmedRef.current = false;
+    setBarcodeArmUi(false);
     setPart(data);
     setBarcodeOpen(false);
   }, []);
@@ -279,7 +322,9 @@ export default function ScanRackScreen() {
       remarks: remarks.trim() || '-',
     });
     await refreshSavedRows();
-    Alert.alert('Saved', 'Row appended to local session');
+    Alert.alert('Saved', 'Row saved to the local session file. Form cleared for the next entry.', [
+      { text: 'OK', onPress: () => clearEntryForm() },
+    ]);
   };
 
   const shareFile = async () => {
@@ -307,50 +352,57 @@ export default function ScanRackScreen() {
     setEditTarget(row);
     setEditPart(row.part_number);
     setEditSap(row.sap_part_number);
+    setEditRack(row.rack_location);
+    setEditQty(String(row.qty_in));
+    setEditRemarks(row.remarks || '-');
   };
 
   const saveEdit = async () => {
     if (!editTarget) return;
     const pn = editPart.trim();
     const reg = editSap.trim();
+    const rk = editRack.trim();
+    const qn = Number(editQty);
     if (!pn) {
       Alert.alert('Part number required');
+      return;
+    }
+    if (!rk) {
+      Alert.alert('Rack location required');
+      return;
+    }
+    if (!Number.isFinite(qn) || qn <= 0) {
+      Alert.alert('Invalid quantity', 'Enter a positive number for quantity.');
       return;
     }
     try {
       await updateRackScanRow(editTarget.id, {
         part_number: pn,
         sap_part_number: reg || pn,
+        rack_location: rk,
+        qty_in: qn,
+        remarks: editRemarks.trim() || '-',
       });
       setEditTarget(null);
       await refreshSavedRows();
+      Alert.alert('Updated', 'Saved changes to this line in the local file.');
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Update failed';
       Alert.alert('Error', msg);
     }
   };
 
-  const confirmDelete = (row: RackScanRowPersisted) => {
-    Alert.alert(
-      'Delete row',
-      `Remove this rack scan line?\n\n${row.part_number} · ${row.rack_location}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteRackScanRow(row.id);
-              await refreshSavedRows();
-            } catch (e) {
-              const msg = e instanceof Error ? e.message : 'Delete failed';
-              Alert.alert('Error', msg);
-            }
-          },
-        },
-      ]
-    );
+  const runDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await deleteRackScanRow(deleteTarget.id);
+      setDeleteTarget(null);
+      await refreshSavedRows();
+      Alert.alert('Deleted', 'Removed from the local session file.');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Delete failed';
+      Alert.alert('Error', msg);
+    }
   };
 
   const nativeScanNote =
@@ -395,7 +447,20 @@ export default function ScanRackScreen() {
       </View>
       {ocrHint ? <Text style={styles.ocrInlineHint}>{ocrHint}</Text> : null}
       {ocrServerHint ? <Text style={styles.ocrInlineHint}>{ocrServerHint}</Text> : null}
-      <TextInput style={styles.input} value={part} onChangeText={setPart} placeholder="Scan or type part number" placeholderTextColor="#94a3b8" />
+      <Text style={styles.partSuggestHint}>
+        Type a few characters for a dropdown of part numbers from Main stock only (same list as Main Stock screen). Requires
+        login and API URL. Tap a row to fill part and SAP, or use Barcode / OCR above.
+      </Text>
+      <PartSuggestInput
+        wrapStyle={styles.partSuggestWrap}
+        value={part}
+        onChangeText={setPart}
+        fetchSuggest={fetchPartSuggest}
+        onPick={onPartPick}
+        placeholder="Scan, type, or pick from suggestions"
+        returnKeyType="next"
+        onSubmitEditing={() => refRack.current?.focus()}
+      />
 
       <Text style={styles.label}>SAP Part Number</Text>
       <TextInput style={styles.input} value={sap} onChangeText={setSap} placeholder="Same as part if blank" placeholderTextColor="#94a3b8" />
@@ -436,7 +501,7 @@ export default function ScanRackScreen() {
                 <Pressable style={styles.savedBtnEdit} onPress={() => openEdit(item)}>
                   <Text style={styles.savedBtnEditText}>Edit</Text>
                 </Pressable>
-                <Pressable style={styles.savedBtnDel} onPress={() => confirmDelete(item)}>
+                <Pressable style={styles.savedBtnDel} onPress={() => setDeleteTarget(item)}>
                   <Text style={styles.savedBtnDelText}>Delete</Text>
                 </Pressable>
               </View>
@@ -448,31 +513,81 @@ export default function ScanRackScreen() {
       <Modal visible={!!editTarget} transparent animationType="fade" onRequestClose={() => setEditTarget(null)}>
         <Pressable style={styles.editOverlay} onPress={() => setEditTarget(null)}>
           <Pressable style={styles.editCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.editTitle}>Edit part & Reg number</Text>
-            <Text style={styles.editLabel}>Part number</Text>
-            <TextInput
-              style={styles.input}
-              value={editPart}
-              onChangeText={setEditPart}
-              placeholder="Part number"
-              placeholderTextColor="#94a3b8"
-              autoCapitalize="characters"
-            />
-            <Text style={styles.editLabel}>Reg / SAP number</Text>
-            <TextInput
-              style={styles.input}
-              value={editSap}
-              onChangeText={setEditSap}
-              placeholder="Same as part if blank"
-              placeholderTextColor="#94a3b8"
-              autoCapitalize="characters"
-            />
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <Text style={styles.editTitle}>Edit saved scan</Text>
+              <Text style={styles.editLabel}>Part number</Text>
+              <TextInput
+                style={styles.input}
+                value={editPart}
+                onChangeText={setEditPart}
+                placeholder="Part number"
+                placeholderTextColor="#94a3b8"
+                autoCapitalize="characters"
+              />
+              <Text style={styles.editLabel}>Reg / SAP number</Text>
+              <TextInput
+                style={styles.input}
+                value={editSap}
+                onChangeText={setEditSap}
+                placeholder="Same as part if blank"
+                placeholderTextColor="#94a3b8"
+                autoCapitalize="characters"
+              />
+              <Text style={styles.editLabel}>Rack location</Text>
+              <TextInput
+                style={styles.input}
+                value={editRack}
+                onChangeText={setEditRack}
+                placeholder="Rack"
+                placeholderTextColor="#94a3b8"
+                autoCapitalize="characters"
+              />
+              <Text style={styles.editLabel}>Quantity</Text>
+              <TextInput
+                style={styles.input}
+                value={editQty}
+                onChangeText={setEditQty}
+                keyboardType="decimal-pad"
+                placeholder="Qty"
+                placeholderTextColor="#94a3b8"
+              />
+              <Text style={styles.editLabel}>Remarks</Text>
+              <TextInput
+                style={styles.input}
+                value={editRemarks}
+                onChangeText={setEditRemarks}
+                placeholder="Remarks"
+                placeholderTextColor="#94a3b8"
+              />
+              <View style={styles.editToolbar}>
+                <Pressable style={styles.tbSec} onPress={() => setEditTarget(null)}>
+                  <Text style={styles.tbSecText}>Cancel</Text>
+                </Pressable>
+                <Pressable style={styles.tb} onPress={() => void saveEdit()}>
+                  <Text style={styles.tbText}>Save</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={deleteTarget !== null} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
+        <Pressable style={styles.editOverlay} onPress={() => setDeleteTarget(null)}>
+          <Pressable style={styles.editCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.editTitle}>Delete this line?</Text>
+            <Text style={styles.deleteBody}>
+              {deleteTarget
+                ? `${deleteTarget.part_number} · Rack ${deleteTarget.rack_location} · Qty ${deleteTarget.qty_in}`
+                : ''}
+            </Text>
+            <Text style={styles.deleteSub}>This removes the row from the local session file only.</Text>
             <View style={styles.editToolbar}>
-              <Pressable style={styles.tbSec} onPress={() => setEditTarget(null)}>
+              <Pressable style={styles.tbSec} onPress={() => setDeleteTarget(null)}>
                 <Text style={styles.tbSecText}>Cancel</Text>
               </Pressable>
-              <Pressable style={styles.tb} onPress={() => void saveEdit()}>
-                <Text style={styles.tbText}>Save</Text>
+              <Pressable style={styles.tbDanger} onPress={() => void runDelete()}>
+                <Text style={styles.tbDangerText}>Delete</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -499,7 +614,7 @@ export default function ScanRackScreen() {
                 style={styles.cameraFill}
                 facing="back"
                 barcodeScannerSettings={{ barcodeTypes: BARCODE_TYPES }}
-                onBarcodeScanned={onBarcodeScanned}
+                onBarcodeScanned={barcodeArmUi ? onBarcodeScanned : undefined}
               />
               <ScanRoiOverlay roi={roi} />
             </View>
@@ -510,9 +625,18 @@ export default function ScanRackScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <ScanRoiToolbar roi={roi} onChange={setRoi} />
+            <Pressable
+              style={[styles.captureBtn, barcodeArmUi && styles.captureBtnListening]}
+              onPress={armBarcodeScan}
+            >
+              <Ionicons name="barcode-outline" size={22} color="#fff" />
+              <Text style={styles.captureBtnText}>
+                {barcodeArmUi ? 'Listening… aim at the code' : 'Scan code (tap once)'}
+              </Text>
+            </Pressable>
             <Text style={styles.modalHint}>
-              Only codes whose center falls inside the blue rectangle are accepted. Use Up/Down to move the box; Smaller/Larger
-              and Narrower/Wider/Shorter/Taller to resize.
+              The camera does not read automatically. Align the code in the blue rectangle, adjust the box with the controls
+              above, then tap Scan code. Only codes whose center falls inside the rectangle are accepted.
             </Text>
           </ScrollView>
         </SafeAreaView>
@@ -631,6 +755,14 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     lineHeight: 15,
   },
+  partSuggestWrap: { zIndex: 30, marginBottom: 4, elevation: 12 },
+  partSuggestHint: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 4,
+    marginBottom: 6,
+    lineHeight: 15,
+  },
   input: {
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -687,10 +819,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 16,
+    maxHeight: '88%',
   },
   editTitle: { fontSize: 17, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
   editLabel: { fontSize: 11, fontWeight: '700', color: '#475569', marginTop: 8 },
   editToolbar: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 16 },
+  deleteBody: { fontSize: 15, fontWeight: '600', color: '#0f172a', marginTop: 8, lineHeight: 22 },
+  deleteSub: { fontSize: 12, color: '#64748b', marginTop: 8, lineHeight: 17 },
+  tbDanger: {
+    backgroundColor: '#dc2626',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  tbDangerText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   modalRoot: { flex: 1, backgroundColor: '#0f172a' },
   modalHeader: {
     flexDirection: 'row',
@@ -736,6 +878,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563eb',
   },
   captureBtnDisabled: { opacity: 0.5 },
+  captureBtnListening: { backgroundColor: '#16a34a' },
   captureBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   pickOverlay: {
     flex: 1,
